@@ -11,7 +11,7 @@
 - [x] 미션 6: SQLite + SQLAlchemy 설정
 - [x] 미션 7: Todo 모델을 DB 테이블로 변환
 - [x] 미션 8: CRUD를 DB 연동으로 변경
-- [ ] 미션 9: DB 마이그레이션 이해 (Alembic)
+- [x] 미션 9: DB 마이그레이션 이해 (Alembic)
 
 ## 3주차: 사용자 인증
 - [ ] 미션 10: User 모델 추가
