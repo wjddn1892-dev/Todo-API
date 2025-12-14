@@ -128,12 +128,12 @@ def read_root():
 
 @app.get("/todos")
 def get_todos(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    todos = db.query(models.Todo).all() # 전체 조회
+    todos = db.query(models.Todo).filter(models.Todo.user_id == current_user.id).all()
     return todos
 
 @app.post("/todos")
 def create_todo(todo: TodoCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    new_todo = models.Todo(title=todo.title, completed=todo.completed)
+    new_todo = models.Todo(title=todo.title, completed=todo.completed, user_id=current_user.id)
     db.add(new_todo)
     db.commit()
     db.refresh(new_todo)
@@ -141,17 +141,17 @@ def create_todo(todo: TodoCreate, db: Session = Depends(get_db), current_user: m
 
 @app.get("/todos/{todo_id}")
 def get_todo(todo_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    todo = db.query(models.Todo).filter(models.Todo.id == todo_id).first() # ID로 조회
+    todo = db.query(models.Todo).filter(models.Todo.id == todo_id, models.Todo.user_id == current_user.id).first()
     if todo is None:
         raise HTTPException(status_code=404, detail="Todo not found")
     return todo
 
 @app.put("/todos/{todo_id}")
 def update_todo(todo_id: int, todo: TodoCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    existing_todo = db.query(models.Todo).filter(models.Todo.id == todo_id).first()
+    existing_todo = db.query(models.Todo).filter(models.Todo.id == todo_id, models.Todo.user_id == current_user.id).first()
     if existing_todo is None:
         raise HTTPException(status_code=404, detail="Todo not found")
-    
+
     existing_todo.title = todo.title
     existing_todo.completed = todo.completed
     db.commit()
@@ -160,7 +160,7 @@ def update_todo(todo_id: int, todo: TodoCreate, db: Session = Depends(get_db), c
 
 @app.delete("/todos/{todo_id}")
 def delete_todo(todo_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    todo = db.query(models.Todo).filter(models.Todo.id == todo_id).first()
+    todo = db.query(models.Todo).filter(models.Todo.id == todo_id, models.Todo.user_id == current_user.id).first()
     if todo is None:
         raise HTTPException(status_code=404, detail="Todo not found")
 
