@@ -5,7 +5,8 @@ from sqlalchemy.orm import Session
 from passlib.context import CryptContext
 from jose import jwt
 from datetime import datetime, timedelta
-from fastapi.security import OAuth2PasswordRequestForm
+from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
+from jose import JWTError
 
 app = FastAPI()
 
@@ -19,6 +20,9 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 bcrypt_context = CryptContext(schemes=['bcrypt'], deprecated="auto")
 
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login") # 토큰 URL 설정
+
+# 비밀번호 해시값 반환
 def get_password_hash(password):
     return bcrypt_context.hash(password)
 
@@ -33,6 +37,7 @@ def create_access_token(username: str, user_id: int, expires_delta: timedelta):
     encode.update({'exp': expires})
     return jwt.encode(encode, SECRET_KEY, algorithm=ALGORITHM)
 
+
 # 의존성 주입: 요청마다 데이터베이스 세션을 생성
 def get_db():
     db = database.SessionLocal()
@@ -40,6 +45,28 @@ def get_db():
         yield db
     finally:
         db.close()
+
+# 현재 유저 정보 불러오기
+def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    credentials_exception = HTTPException(
+        status_code=401,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"}
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+        
+        # DB에서 username으로 사용자 조회 후 사용자가 없으면 credentials_exception 발생
+        user = db.query(models.User).filter(models.User.username == username).first()
+        if user is None:
+            raise credentials_exception
+        return user
+    except JWTError:    # JWT 디코딩 실패 시 예외 처리        
+        raise credentials_exception
+
 
 class TodoCreate(BaseModel):    # 입력용 모델
     title: str
@@ -68,14 +95,17 @@ def create_new_user(user: User, db: Session = Depends(get_db)):
     db.refresh(create_user)
     return create_user
 
+# 로그인 API
 @app.post("/auth/login")
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    # 1. DB에서 username으로 사용자 조회
-    # 2. 사용자 없으면 401 에러
-    # 3. 비밀번호 검증 (verify_password 사용)
-    # 4. 검증 실패하면 401 에러
-    # 5. 토큰 생성 (create_access_token 사용)
-    # 6. {"access_token": token, "token_type": "bearer"} 반환
+    """
+    1. DB에서 username으로 사용자 조회
+    2. 사용자 없으면 401 에러
+    3. 비밀번호 검증
+    4. 검증 실패하면 401 에러
+    5. 토큰 생성
+    6. {"access_token": token, "token_type": "bearer"} 반환
+    """
     
     # 사용자 조회
     user = db.query(models.User).filter(models.User.username == form_data.username).first()
@@ -97,12 +127,12 @@ def read_root():
     return {"message": "Hello World"}
 
 @app.get("/todos")
-def get_todos(db: Session = Depends(get_db)):
+def get_todos(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     todos = db.query(models.Todo).all() # 전체 조회
     return todos
 
 @app.post("/todos")
-def create_todo(todo: TodoCreate, db: Session = Depends(get_db)):
+def create_todo(todo: TodoCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     new_todo = models.Todo(title=todo.title, completed=todo.completed)
     db.add(new_todo)
     db.commit()
@@ -110,14 +140,14 @@ def create_todo(todo: TodoCreate, db: Session = Depends(get_db)):
     return new_todo
 
 @app.get("/todos/{todo_id}")
-def get_todo(todo_id: int, db: Session = Depends(get_db)):
+def get_todo(todo_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     todo = db.query(models.Todo).filter(models.Todo.id == todo_id).first() # ID로 조회
     if todo is None:
         raise HTTPException(status_code=404, detail="Todo not found")
     return todo
 
 @app.put("/todos/{todo_id}")
-def update_todo(todo_id: int, todo: TodoCreate, db: Session = Depends(get_db)):
+def update_todo(todo_id: int, todo: TodoCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     existing_todo = db.query(models.Todo).filter(models.Todo.id == todo_id).first()
     if existing_todo is None:
         raise HTTPException(status_code=404, detail="Todo not found")
@@ -129,7 +159,7 @@ def update_todo(todo_id: int, todo: TodoCreate, db: Session = Depends(get_db)):
     return existing_todo
 
 @app.delete("/todos/{todo_id}")
-def delete_todo(todo_id: int, db: Session = Depends(get_db)):
+def delete_todo(todo_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     todo = db.query(models.Todo).filter(models.Todo.id == todo_id).first()
     if todo is None:
         raise HTTPException(status_code=404, detail="Todo not found")
